@@ -5,11 +5,9 @@ import requests
 from flask import Flask, request
 import google.generativeai as genai
 from datetime import datetime, timedelta
+import traceback
 
 app = Flask(__name__)
-
-# 這裡只吃 Gemini 的金鑰，LINE 的通通不需要了
-genai.configure(api_key=os.environ.get('GEMINI_API_KEY'))
 
 def get_technical_data(stock_id):
     try:
@@ -30,13 +28,14 @@ def get_technical_data(stock_id):
         df_5m['5MA'] = df_5m['Close'].rolling(window=5).mean()
         df_5m['10MA'] = df_5m['Close'].rolling(window=10).mean()
         df_5m_recent = df_5m.tail(8)[['Close', 'Volume', '5MA', '10MA']].round(2)
-        df_5m_recent.index = df_5m_recent.index.tz_localize(None).strftime('%H:%M')
+        # 移除有報錯風險的時區轉換語法
+        df_5m_recent.index = df_5m_recent.index.strftime('%H:%M')
         
         out = f"【昨日關鍵價】最高:{prev_high}, 最低:{prev_low}, 收盤:{prev_close}, 量:{prev_vol}\n\n"
         out += f"【盤中5分K動能】\n{df_5m_recent.to_markdown()}"
         return out
     except Exception as e:
-        return "技術線型資料抓取失敗"
+        return f"技術資料抓取失敗: {str(e)}"
 
 def get_chips_data(stock_id, days=5):
     if not stock_id.isdigit(): return "美股無台灣法人籌碼資料"
@@ -53,8 +52,8 @@ def get_chips_data(stock_id, days=5):
         df_pivot = df_pivot.rename(columns=cols_map)
         available_cols = [c for c in cols_map.values() if c in df_pivot.columns]
         return df_pivot[available_cols].tail(days).round(0).to_markdown()
-    except:
-        return "法人籌碼資料抓取失敗"
+    except Exception as e:
+        return f"籌碼資料抓取失敗: {str(e)}"
 
 @app.route("/", methods=['GET', 'POST'])
 def index():
@@ -65,31 +64,30 @@ def index():
         stock_id = request.form.get('stock_id', '').strip().upper()
         if stock_id:
             try:
+                # 確保每次執行都抓取最新金鑰
+                api_key = os.environ.get('GEMINI_API_KEY')
+                if not api_key:
+                    raise ValueError("伺服器找不到 GEMINI_API_KEY，請確認 Render 環境變數是否設定正確。")
+
+                genai.configure(api_key=api_key)
+                
                 tech_md = get_technical_data(stock_id)
                 chips_md = get_chips_data(stock_id)   
                 
-                system_prompt = """你現在是一位頂級的「當沖交易員」與「波段策略分析師」。
-                【分析核心原則】
-                1. 絕對客觀：不帶情緒，只看數據與K線說話。
-                2. 風險至上：永遠先抓停損點，再看獲利空間。
-                3. 沖抱雙規：必須同時評估「日內當沖」動能與「波段持有」安全性。
-
-                請輸出以下格式：
-                【價格與動能速寫】趨勢、動能、法人籌碼
-                【當沖作戰劇本】精算「突破轉強點(壓力)」與「絕對防守點(支撐)」。分別寫出多方與空方進場條件、停利、停損，並警告當沖風險。
-                【波段持有評估】基本面護城河、籌碼集中度、留倉安全性(適合留倉/短波/絕不可留倉)、波段防守底線。
-                【最終行動結論】一句話總結現在最適合的操作方式。"""
+                system_prompt = "你是一位專業的當沖與波段分析師。請保持絕對客觀，分析以下數據，判斷趨勢與關鍵支撐壓力位，並給出行動結論。"
                 
                 model = genai.GenerativeModel(model_name='gemini-1.5-flash', system_instruction=system_prompt)
                 user_prompt = f"請針對股票 {stock_id} 分析：\n[技術面]\n{tech_md}\n[籌碼面]\n{chips_md}"
-                response = model.generate_content(user_prompt, generation_config=genai.types.GenerationConfig(temperature=0.2))
                 
-                # 將結果轉換為網頁好閱讀的格式
+                # 移除容易引發版本衝突的 generation_config 參數
+                response = model.generate_content(user_prompt)
+                
                 result_html = response.text.replace('\n', '<br>').replace('**', '<b>').replace('**', '</b>')
             except Exception as e:
-                result_html = f"<span style='color:red;'>分析失敗，請確認代碼是否正確。</span>"
+                # 終極除錯：將真實的系統崩潰原因直接印在畫面上
+                error_trace = traceback.format_exc()
+                result_html = f"<div style='color:red; text-align:left; background:#ffe6e6; padding:15px; border-radius:8px; font-size:13px; overflow-x:auto;'><b style='font-size:16px;'>🚨 系統真實錯誤日誌：</b><br><br><pre>{error_trace}</pre></div>"
 
-    # 簡單乾淨的網頁介面
     html = f"""
     <!DOCTYPE html>
     <html lang="zh-TW">
@@ -123,10 +121,6 @@ def index():
     </html>
     """
     return html
-
-@app.route("/keep_awake", methods=['GET'])
-def keep_awake():
-    return "I am awake!"
 
 if __name__ == "__main__":
     app.run(port=8080)
