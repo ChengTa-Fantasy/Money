@@ -28,7 +28,6 @@ def get_technical_data(stock_id):
         df_5m['5MA'] = df_5m['Close'].rolling(window=5).mean()
         df_5m['10MA'] = df_5m['Close'].rolling(window=10).mean()
         df_5m_recent = df_5m.tail(8)[['Close', 'Volume', '5MA', '10MA']].round(2)
-        # 移除有報錯風險的時區轉換語法
         df_5m_recent.index = df_5m_recent.index.strftime('%H:%M')
         
         out = f"【昨日關鍵價】最高:{prev_high}, 最低:{prev_low}, 收盤:{prev_close}, 量:{prev_vol}\n\n"
@@ -64,7 +63,6 @@ def index():
         stock_id = request.form.get('stock_id', '').strip().upper()
         if stock_id:
             try:
-                # 確保每次執行都抓取最新金鑰
                 api_key = os.environ.get('GEMINI_API_KEY')
                 if not api_key:
                     raise ValueError("伺服器找不到 GEMINI_API_KEY，請確認 Render 環境變數是否設定正確。")
@@ -76,15 +74,14 @@ def index():
                 
                 system_prompt = "你是一位專業的當沖與波段分析師。請保持絕對客觀，分析以下數據，判斷趨勢與關鍵支撐壓力位，並給出行動結論。"
                 
-                model = genai.GenerativeModel(model_name='gemini-1.5-flash', system_instruction=system_prompt)
+                # 這裡已經更新為正確的模型名稱
+                model = genai.GenerativeModel(model_name='gemini-1.5-flash-latest', system_instruction=system_prompt)
                 user_prompt = f"請針對股票 {stock_id} 分析：\n[技術面]\n{tech_md}\n[籌碼面]\n{chips_md}"
                 
-                # 移除容易引發版本衝突的 generation_config 參數
                 response = model.generate_content(user_prompt)
                 
                 result_html = response.text.replace('\n', '<br>').replace('**', '<b>').replace('**', '</b>')
             except Exception as e:
-                # 終極除錯：將真實的系統崩潰原因直接印在畫面上
                 error_trace = traceback.format_exc()
                 result_html = f"<div style='color:red; text-align:left; background:#ffe6e6; padding:15px; border-radius:8px; font-size:13px; overflow-x:auto;'><b style='font-size:16px;'>🚨 系統真實錯誤日誌：</b><br><br><pre>{error_trace}</pre></div>"
 
