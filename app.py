@@ -72,11 +72,12 @@ def index():
                 tech_md = get_technical_data(stock_id)
                 chips_md = get_chips_data(stock_id)   
                 
-                system_prompt = "你是一位專業的當沖與波段分析師。請保持絕對客觀，分析以下數據，判斷趨勢與關鍵支撐壓力位，並給出行動結論。"
+                # 直接使用最底層、支援度最高的 gemini-pro 模型
+                model = genai.GenerativeModel(model_name='gemini-pro')
                 
-                # 這裡已經更新為正確的模型名稱
-                model = genai.GenerativeModel(model_name='gemini-1.5-flash-latest', system_instruction=system_prompt)
-                user_prompt = f"請針對股票 {stock_id} 分析：\n[技術面]\n{tech_md}\n[籌碼面]\n{chips_md}"
+                # 將系統人設與使用者指令合併，避開新版參數衝突
+                system_prompt = "你是一位專業的當沖與波段分析師。請保持絕對客觀，分析以下數據，判斷趨勢與關鍵支撐壓力位，並給出行動結論。\n\n"
+                user_prompt = f"{system_prompt}請針對股票 {stock_id} 分析：\n[技術面]\n{tech_md}\n[籌碼面]\n{chips_md}"
                 
                 response = model.generate_content(user_prompt)
                 
